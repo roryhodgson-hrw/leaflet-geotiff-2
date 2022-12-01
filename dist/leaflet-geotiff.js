@@ -4,11 +4,42 @@
   (global = global || self, factory(global.GeoTIFF));
 }(this, (function (GeoTIFF) { 'use strict';
 
-  // https://github.com/ScanEx/Leaflet.imageTransform/blob/master/src/L.ImageTransform.js
-  // https://github.com/BenjaminVadant/leaflet-ugeojson
-  // Depends on:
-  // https://github.com/constantinius/geotiff.js
-  // Note this will only work with ESPG:4326 tiffs
+    // https://github.com/ScanEx/Leaflet.imageTransform/blob/master/src/L.ImageTransform.js
+    // https://github.com/BenjaminVadant/leaflet-ugeojson
+
+    // Depends on:
+    // https://github.com/constantinius/geotiff.js
+    // Note this will only work with ESPG:4326 tiffs
+
+    //####################### Generating COGs for display:
+    // Cloud Optimised GeoTiffs need to be generated correctly, with pyramids if required (recommended), and may need resampling to ESPG:4326 before being displayable/queryable directly using this script.
+    // gdal warp https://gdal.org/programs/gdalwarp.html
+    // gdaladdo https://gdal.org/programs/gdaladdo.html
+    /*
+      1: Generate the pryramids internally in the tiff file
+      This will overwrite your original tiff file so save that first. It makes making the filesize itself larger in the process as it makes the tiff a multi-page file with a scaled down version of the raster at each file
+      Note: be careful the resampling method is appropriate for the data type
+        $ gdaladdo -r nearest //input/file/location 2 4 8 16 32
+      Essentially asking for the raster to be resampled at intervals and saving the outputs within the existing file.
+
+      2: Convert the geotiff to a Cloud Optimised Geotiff with the pyramids intact and internally referenced
+      $ gdal_translate -strict -mo META-TAG=VALUE -a_srs EPSG:4326 -of GTiff -if GTiff //input/file/location //output/file/location -co COMPRESS=LZW -co TILED=YES -co COPY_SRC_OVERVIEWS=YES
+    */
+    // https://geoexamples.com/other/2019/02/08/cog-tutorial.html
+    // https://observablehq.com/@tmcw/cloud-optimized-geotiffs
+    // https://gis.stackexchange.com/questions/206509/how-are-geotiff-pyramids-overviews-standardised/255847#255847
+    // https://gdal.org/programs/gdal_translate.html
+    // https://gdal.org/drivers/raster/index.html#raster-drivers
+
+    //####################### Rory Hodgson @ HR Wallingford additions include:
+    // calculating and passing viewport bounds to leaflet-geotiff.js
+    // translating viewport bounds to a subset of the raster pixels and returning only that subset part of the main raster
+    // collecting a lower-resultion resampled pyramid image
+
+    //####################### Caveats:
+    // untested with plotty arrow rendering
+    // very-much a work in progress
+    // In need of some tweaking on rasters that cross meridians
 
   try {
     new window.ImageData(new Uint8ClampedArray([0, 0, 0, 0]), 1, 1);
@@ -68,44 +99,48 @@
     },
 
     initialize(url, options) {
-      if (typeof GeoTIFF === "undefined") {
-        throw new Error("GeoTIFF not defined");
-      }
 
-      this._url = url;
-      this.raster = {};
-      this.sourceFunction = GeoTIFF.fromUrl;
-      this._blockSize = 65536;
-      this.x_min = null;
-      this.x_max = null;
-      this.y_min = null;
-      this.y_max = null;
-      this.min = null;
-      this.max = null;
-      L.Util.setOptions(this, options);
+        if (typeof window.GeoTIFF === "undefined") {
+          throw new Error("GeoTIFF not defined");
+        }
 
-      if (this.options.bounds) {
-        this._rasterBounds = L.latLngBounds(options.bounds);
-      }
+        let GeoTIFF = window.GeoTIFF
+        //console.log(GeoTIFF);
 
-      if (this.options.renderer) {
-        this.options.renderer.setParent(this);
-      }
+        this._url = url;
+        this.raster = {};
+        this.sourceFunction = GeoTIFF.fromUrl;
+        this._blockSize = 65536;
+        this.x_min = null;
+        this.x_max = null;
+        this.y_min = null;
+        this.y_max = null;
+        this.min = null;
+        this.max = null;
+        L.Util.setOptions(this, options);
 
-      if (this.options.sourceFunction) {
-        this.sourceFunction = this.options.sourceFunction;
-      }
+        if (this.options.bounds) {
+          this._rasterBounds = L.latLngBounds(this.options.bounds);
+        }
 
-      if (this.options.blockSize) {
-        this._blockSize = this.options.blockSize;
-      }
+        if (this.options.renderer) {
+          this.options.renderer.setParent(this);
+        }
 
-      this._getData();
+        if (this.options.sourceFunction) {
+          this.sourceFunction = this.options.sourceFunction;
+        }
+
+        if (this.options.blockSize) {
+          this._blockSize = this.options.blockSize;
+        }
+
+        this._getData();
+    
     },
 
     setURL(newURL) {
       this._url = newURL;
-
       this._getData();
     },
 
@@ -149,7 +184,7 @@
     async _getData() {
       let tiff;
 
-      if (this.sourceFunction !== GeoTIFF.fromArrayBuffer) {
+      if (this.sourceFunction !== window.GeoTIFF.fromArrayBuffer) {
         tiff = await this.sourceFunction(this._url, {
           blockSize: this._blockSize
         }).catch(e => {
@@ -160,6 +195,8 @@
             return false;
           }
         });
+        this._processTIFF(tiff);
+        return true;
       } else {
         tiff = await GeoTIFF.fromArrayBuffer(this.options.arrayBuffer, {
           blockSize: this._blockSize
@@ -171,27 +208,31 @@
             return false;
           }
         });
+        this._processTIFF(tiff);
+        return true;
       }
 
-      this._processTIFF(tiff);
-
-      return true;
     },
+
+
 
     async _processTIFF(tiff) {
       this.tiff = tiff;
+      console.log(this.options)
       await this.setBand(this.options.band).catch(e => {
+        //console.log(this.options)
         console.error("this.setBand threw error", e);
       });
 
-      if (!this.options.bounds) {
+      if (!this.options.bounds) {//only runs if bounds are not supplied
         const image = await this.tiff.getImage(this.options.image).catch(e => {
           console.error("this.tiff.getImage threw error", e);
         });
-        const meta = await image.getFileDirectory(); //console.log("meta", meta);
+        const meta = await image.getFileDirectory(); console.log("meta", meta);
 
         try {
-          const bounds = image.getBoundingBox();
+          let origin = image.getOrigin();
+          let bounds = image.getBoundingBox();
           this.x_min = bounds[0];
           this.x_max = bounds[2];
           this.y_min = bounds[1];
@@ -201,11 +242,13 @@
           if (this.options.onError) this.options.onError(e);
         }
 
+        this._rasterBounds = L.latLngBounds([[this.y_min, this.x_min], [this.y_max, this.x_max]]);
+
+        //console.log(this._rasterBounds)
+
         if (this.options.noDataKey) {
           this.options.noDataValue = this.getDescendantProp(image, this.options.noDataKey);
         }
-
-        this._rasterBounds = L.latLngBounds([[this.y_min, this.x_min], [this.y_max, this.x_max]]);
 
         this._reset();
 
@@ -235,15 +278,95 @@
     },
 
     async setBand(band) {
-      this.options.band = band;
-      const image = await this.tiff.getImage(this.options.image).catch(e => {
+      this.raster.subset = [];
+
+      //gdal doesn't write out the affine transformation (geoKeys) metadata and related outputs for each of the pyramid subimages
+      //QGIS forgives this and reads what it needs from the main (0) image into the subimages
+      //Leflet.geotiff however does not, so we rectify that here
+      //We need to fetch the affine geokeys from the original and then inject them to the subimage data
+      
+      //always fetch the mainimage metadata, so we can pass this down to the subimages in leaflet.geotiff
+      const mainimage = await this.tiff.getImage(0).catch(e => {
         console.error("this.tiff.getImage threw error", e);
       });
+
+      let image = mainimage
+
+      //if its is a subfile we want to write the geoKeys out to it from the mainimage
+      if (this.options.image !=0){
+        this.tiff.fileDirectories.forEach(internalsubfile => {
+          internalsubfile[1] = this.tiff.fileDirectories[0][1]
+        });
+
+        //we overwite the image variable with the subfile once we have the corect metadata from the parent
+        image = await this.tiff.getImage(this.options.image).catch(e => {
+          console.error("this.tiff.getImage threw error", e);
+        });
+
+        //copy across the geokeys from the main image metadata
+        image.geoKeys = mainimage.geoKeys
+      }
+
+      //Now we can read the headers of whichever main/subimage is returned in the same way
+      const width = image.getWidth();
+      const height = image.getHeight();
+      const tileWidth = image.getTileWidth();
+      const tileHeight = image.getTileHeight();
+      const samplesPerPixel = image.getSamplesPerPixel();
+
+      //we need to write the following objects manually if the geotiff requested is a subfile
+      if (this.options.image !=0){
+        //Once we have a full set of these metadata written our subfiles will load in leaflet
+        image.fileDirectory.GDAL_METADATA = mainimage.fileDirectory.GDAL_METADATA
+        image.fileDirectory.GDAL_NODATA = mainimage.fileDirectory.GDAL_NODATA
+        image.fileDirectory.GeoAsciiParams = mainimage.fileDirectory.GeoAsciiParams
+        image.fileDirectory.GeoAsciiParams = mainimage.fileDirectory.GeoAsciiParams
+        image.fileDirectory.GeoDoubleParams = mainimage.fileDirectory.GeoDoubleParams
+        image.fileDirectory.GeoKeyDirectory = mainimage.fileDirectory.GeoKeyDirectory
+        image.fileDirectory.ModelPixelScale = []
+
+        //If the Geotiff has a set of pyramids (defined in options.image), and only one of these has been requested, we define the scaling factor here
+        let factor = 0
+        if (this.options.image === 1){ factor=2 }
+        if (this.options.image === 2){ factor=4 }
+        if (this.options.image === 3){ factor=8 }
+        if (this.options.image === 4){ factor=16 }
+        if (this.options.image === 5){ factor=32 }
+        if (this.options.image === 6){ factor=64 }
+        if (this.options.image === 7){ factor=128 }
+        //This helps us in the drawing of the raster overlay onscreen later
+        image.fileDirectory.ModelPixelScale[0] = mainimage.fileDirectory.ModelPixelScale[0]*factor
+        image.fileDirectory.ModelPixelScale[1] = mainimage.fileDirectory.ModelPixelScale[1]*factor
+        //There is only ever one tiepoint set of lat/lngs referenced in the geotiff - the topleft corner of the main, fullsized image
+        image.fileDirectory.ModelTiepoint = mainimage.fileDirectory.ModelTiepoint 
+      }
+      
+      // when we are actually dealing with geo-data the following methods return
+      // meaningful results:
+      const origin = image.getOrigin();//top right anchor for whole image
+      const resolution = image.getResolution();//resolution per screen pixel
+      
+      //So we have the subset geometry
+      const subsetgeom = this.options.subset;
+      //and we have our image boundingbox coordinates
+      const bbox = image.getBoundingBox();
+
+      //console.log(width, height)
+
+      //If this is a subset geometry then we've got some work to do
+      if(subsetgeom){
+        this.getWindowBoundsFromLatLng(subsetgeom, width, height, bbox, image.fileDirectory.ModelPixelScale, image.fileDirectory.ModelTiepoint);
+      }
+      
+      //readrasters actually gets the image data
       const data = await image.readRasters({
-        samples: this.options.samples
+        samples: [this.options.band],
+        window: this.raster.rasterSubset//[left, top, right, bottom]
       }).catch(e => {
         console.error("image.readRasters threw error", e);
       });
+
+      //refers specifically to rgb bands
       const r = data[this.options.rBand];
       const g = data[this.options.gBand];
       const b = data[this.options.bBand]; // map transparency value to alpha channel if transpValue is specified
@@ -254,12 +377,122 @@
       this.raster.data = [r, g, b, a].filter(function (v) {
         return v;
       });
+
       this.raster.width = image.getWidth();
-      this.raster.height = image.getHeight(); //console.log("image", image, "data", data, "raster", this.raster.data);
+      this.raster.height = image.getHeight();
+      
+      //We reset the width and height of the image based on the subset requested
+      if(subsetgeom){
+        this.raster.width = this.raster.rasterSubset[2] - this.raster.rasterSubset[0];
+        this.raster.height = this.raster.rasterSubset[3] - this.raster.rasterSubset[1];
+      }
 
       this._reset();
 
+      console.log(image)
+
       return true;
+    },
+
+    //"bounds: [coordinate array]" in leaflet-geotiff.js define where to position the output raster - this is the easy bit.
+    //"window: [left, top, right, bottom]" bounds in geotiff.js define tha basis for file-based filtering of the raster data - this is the harder bit.
+    getWindowBoundsFromLatLng(subsetgeom, width, height, imgbbox, img_pxsize, img_tiepoint) {
+      console.log(subsetgeom, width, height, imgbbox, img_pxsize, img_tiepoint);
+
+      //1: work out the subset geometry (viewport) as a percentage of the raster image
+      //Lets clear up the latlng leftright confusion for the image
+      var imgTop_Lat = imgbbox[3];
+      var imgLeft_Lon = imgbbox[0];
+      var imgBottom_Lat = imgbbox[1];
+      var imgRight_Lon = imgbbox[2];
+      //console.log(imgTop_Lat, imgLeft_Lon, imgBottom_Lat, imgRight_Lon)
+
+      //calculate the horizontal length and vertical height of the whole geotiff image in degrees
+      var imgWidthDeg = Math.abs(imgRight_Lon - imgLeft_Lon);
+      var imgHeightDeg = Math.abs(imgTop_Lat - imgBottom_Lat);
+      console.log('img length deg:' + imgWidthDeg, 'img height deg:'+ imgHeightDeg)
+
+      //Lets clear up the latlng leftright confusion for the subset.
+      var subimgTop_Lat = subsetgeom[2][0];
+      var subimgLeft_Lon = subsetgeom[0][1];
+      var subimgBottom_Lat = subsetgeom[0][0];
+      var subimgRight_Lon = subsetgeom[2][1];
+      //console.log(subimgTop_Lat, subimgLeft_Lon, subimgBottom_Lat, subimgRight_Lon)
+
+      //calculate the horizontal length and vertical height of the subset bounding box in degrees
+      var subimgWidthDeg = subimgRight_Lon - subimgLeft_Lon;
+      var subimgHeightDeg = subimgTop_Lat - subimgBottom_Lat;
+      console.log('subimg length deg:' + subimgWidthDeg, 'subimg height deg:'+ subimgHeightDeg);
+
+      //now we need to calculate the distance in degrees of our subsets [left, top, right, bottom] in relation to the overall raster image bounds
+      //gives us distances in degrees from image boundary
+      //IMPORTANT TODO: This will need tweaking for cases when raster crosses/spans meridian or equator
+      var subsetBoundsDistanceToRasterTop = Math.abs(imgBottom_Lat - subimgTop_Lat);
+      var subsetBoundsDistanceToRasterLeft = Math.abs(imgRight_Lon - subimgLeft_Lon);
+      var subsetBoundsDistanceToRasterBottom = Math.abs(subimgBottom_Lat - imgTop_Lat);
+      var subsetBoundsDistanceToRasterRight = Math.abs(subimgRight_Lon - imgLeft_Lon);
+      //console.log(subsetBoundsDistanceToRasterTop, subsetBoundsDistanceToRasterLeft, subsetBoundsDistanceToRasterBottom, subsetBoundsDistanceToRasterRight);
+
+      //subtract these distances from the known width and height of the raster image
+      var subsetDistanceFromRasterTop_Deg = imgHeightDeg - subsetBoundsDistanceToRasterTop;
+      var subsetDistanceFromRasterLeft_Deg = imgWidthDeg - subsetBoundsDistanceToRasterLeft;
+      var subsetDistanceFromRasterBottom_Deg = imgHeightDeg - subsetBoundsDistanceToRasterBottom;
+      var subsetDistanceFromRasterRight_Deg = imgWidthDeg - subsetBoundsDistanceToRasterRight;
+      //console.log(subsetDistanceFromRasterTop_Deg, subsetDistanceFromRasterLeft_Deg, subsetDistanceFromRasterBottom_Deg, subsetDistanceFromRasterRight_Deg);
+
+      //We can then calculate these distances as a proportion of the size of the raster
+      var percentageDistanceFromRasterTop = (subsetDistanceFromRasterTop_Deg/imgHeightDeg * 100);
+      var percentageDistanceFromRasterLeft = (subsetDistanceFromRasterLeft_Deg/imgWidthDeg * 100);
+      var percentageDistanceFromRasterBottom = 100 -(subsetDistanceFromRasterBottom_Deg/imgHeightDeg * 100);//we invert the right and bottom
+      var percentageDistanceFromRasterRight = 100 - (subsetDistanceFromRasterRight_Deg/imgWidthDeg * 100);
+      console.log(percentageDistanceFromRasterTop, percentageDistanceFromRasterLeft, percentageDistanceFromRasterBottom, percentageDistanceFromRasterRight);
+    
+      //And apply them to the overall width of the geotiff image
+      var pixelEquivalentTop = height/100*percentageDistanceFromRasterTop;
+      var pixelEquivalentLeft = width/100*percentageDistanceFromRasterLeft;
+      var pixelEquivalentBottom = height/100*percentageDistanceFromRasterBottom; 
+      var pixelEquivalentRight = width/100*percentageDistanceFromRasterRight;
+      //console.log([pixelEquivalentLeft, pixelEquivalentTop, pixelEquivalentRight, pixelEquivalentBottom])
+
+      //We take them back to their whole numbers to ensure a full set of pixels are returned
+      this.raster.rasterSubset = [
+        Math.trunc(pixelEquivalentLeft), 
+        Math.trunc(pixelEquivalentTop), 
+        Math.trunc(pixelEquivalentRight), 
+        Math.trunc(pixelEquivalentBottom)
+      ]
+
+      //NOTE: we are talking about sorting two points here. topleft and botomright, working down from topright
+
+      //We need to know the lat and lng of these new subset boundaries.
+      //are these embedded in the file? - not as such but...
+      //console.log(width, height, img_pxsize[0], img_pxsize[1], img_tiepoint[3], img_tiepoint[4]) 
+      //console.log(this.raster.rasterSubset)
+
+      //main image anchor point topleft
+      var mainimg_topanchor = img_tiepoint[3]
+      var mainimg_leftanchor = img_tiepoint[4]
+
+      //we can shift our registration points by the number of pixel widths/heights
+      var shiftedtop = mainimg_topanchor + this.raster.rasterSubset[0] * img_pxsize[0]
+      var shiftedleft = mainimg_leftanchor - this.raster.rasterSubset[1] * img_pxsize[1]
+      var shiftedbottom = mainimg_topanchor + (this.raster.rasterSubset[2] * img_pxsize[0])
+      var shiftedright = mainimg_leftanchor - (this.raster.rasterSubset[3] * img_pxsize[1])
+
+      console.log([shiftedtop, shiftedleft], [shiftedbottom, shiftedright])
+
+      //and the adjusted bounds are
+      this.options.bounds = [
+        [shiftedleft,shiftedtop],
+        [shiftedleft,shiftedbottom],
+        [shiftedright,shiftedbottom],
+        [shiftedright,shiftedtop],
+        [shiftedleft,shiftedtop]
+      ]
+
+      this._rasterBounds = L.latLngBounds(this.options.bounds)
+      
+      return this.raster.rasterSubset;
     },
 
     getRasterArray() {
@@ -302,6 +535,7 @@
       }
     },
 
+
     _animateZoom(e) {
       if (L.version >= "1.0") {
         var scale = this._map.getZoomScale(e.zoom),
@@ -326,8 +560,13 @@
     _reset() {
       if (this.hasOwnProperty("_map") && this._map) {
         if (this._rasterBounds) {
-          var topLeft = this._map.latLngToLayerPoint(this._map.getBounds().getNorthWest()),
-              size = this._map.latLngToLayerPoint(this._map.getBounds().getSouthEast())._subtract(topLeft);
+
+          let northwest = this._map.getBounds().getNorthWest()
+          let southeast = this._map.getBounds().getSouthEast()
+
+          //This controls the final positioning of the image
+          var topLeft = this._map.latLngToLayerPoint(northwest),
+              size = this._map.latLngToLayerPoint(southeast)._subtract(topLeft);
 
           L.DomUtil.setPosition(this._image, topLeft);
           this._image.style.width = size.x + "px";
@@ -377,9 +616,12 @@
     _drawImage() {
       if (this.raster.hasOwnProperty("data")) {
         var args = {};
+        
+        //By the time we get here the positioning of the raster is not in this.raster
+        console.log(this.raster)
 
+        //positioning and size of the raster is defined here
         var topLeft = this._map.latLngToLayerPoint(this._map.getBounds().getNorthWest());
-
         var size = this._map.latLngToLayerPoint(this._map.getBounds().getSouthEast())._subtract(topLeft);
 
         args.rasterPixelBounds = L.bounds(this._map.latLngToContainerPoint(this._rasterBounds.getNorthWest()), this._map.latLngToContainerPoint(this._rasterBounds.getSouthEast())); // sometimes rasterPixelBounds will have fractional values
@@ -417,7 +659,11 @@
         plotCanvas.height = size.y;
         var ctx = plotCanvas.getContext("2d");
         ctx.clearRect(0, 0, plotCanvas.width, plotCanvas.height);
-        this.options.renderer.render(this.raster, plotCanvas, ctx, args); // mask caused problems and seems to be not needed for our implementation
+        this.options.renderer.render(this.raster, plotCanvas, ctx, args);
+        
+        //  mask is causeing problems and seems to be not needed for our implementation
+        //  TODO: look into what this is supposed to do and why this doesn't work
+        //  seems to just expect a clipping geometry - untested by HRW
         //var mask = this.createMask(size, args);
         //ctx.globalCompositeOperation = 'destination-out';
         //ctx.drawImage(mask, 0, 0);
