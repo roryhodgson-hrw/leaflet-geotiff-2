@@ -1,12 +1,12 @@
-# leaflet-geotiff-2 [![NPM version][npm-image]][npm-url] [![NPM Downloads][npm-downloads-image]][npm-url]
+# leaflet-geotiff-3-alpha
 
-A [LeafletJS](http://www.leafletjs.com) plugin for displaying geoTIFF raster data. Data can drawn as colored rasters or directon arrows. The layer can be clipped using a polygon.
+A [LeafletJS](http://www.leafletjs.com) plugin for 3/4 dimentional filtering (pyramid-resolution, viewport-width, viewport-height, and band) and display of geoTIFF raster data in leaflet.
 
-![Screenshot](/screenshots/example.png?raw=true)
+Ready for further testing, development, beautifying and updating.
 
-## Version 1 Notice
+## Alpha version Notice
 
-As of version 1, `leaflet-geotiff-2` is now under [CSIRO](https://www.csiro.au)'s [Open Source Software Licence Agreement](LICENSE.md), which is a variation of the BSD / MIT License.
+As of version 1, `leaflet-geotiff-3-alpha` is under [CSIRO](https://www.csiro.au)'s [Open Source Software Licence Agreement](LICENSE.md), which is a variation of the BSD / MIT License.
 
 There are no other plans for changes to licensing, and the project will remain open source.
 
@@ -14,24 +14,46 @@ There are no other plans for changes to licensing, and the project will remain o
 
 ## Instructions
 
-### 1. Load modules
+### 1. Dependencies
 
 Dependencies must be loaded:
 
 - [Leaflet >= 0.7.7](http://leafletjs.com)
 - [geotiff.js == 1.0.0-beta.13](https://github.com/constantinius/geotiff.js)
 - [plotty >= 0.4.4](https://github.com/santilland/plotty) (optional)
+- [turf.js](https://turfjs.org/)
+- A http server (cloud optimised geotiffs are spatially filtered using a http range request)
 
-```javascript
-import "leaflet-geotiff-2";
 
-// optional renderers
-import "leaflet-geotiff-2/dist/leaflet-geotiff-rgb";
-import "leaflet-geotiff-2/dist/leaflet-geotiff-vector-arrows";
-import "leaflet-geotiff-2/dist/leaflet-geotiff-plotty"; // requires plotty
-```
+### 2. Preparing COGS for display
 
-### 2. Add a geoTIFF layer
+Note this will only work with ESPG:4326 tiffs. Useful documentation below:
+
+https://geoexamples.com/other/2019/02/08/cog-tutorial.html
+https://observablehq.com/@tmcw/cloud-optimized-geotiffs
+https://gis.stackexchange.com/questions/206509/how-are-geotiff-pyramids-overviews-standardised/255847#255847
+https://gdal.org/programs/gdal_translate.html
+https://gdal.org/drivers/raster/index.html#raster-drivers
+
+Cloud Optimised GeoTiffs need to be generated correctly, with pyramids if required (recommended), and may need resampling to ESPG:4326 before being displayable/queryable directly using this script. Familiarity with GDAL is required.
+
+[gdal warp](https://gdal.org/programs/gdalwarp.html)
+[gdaladdo](https://gdal.org/programs/gdaladdo.html)
+
+#### 2.1: Generate the pryramids internally in the tiff file
+This will overwrite your original tiff file so save that first. It makes making the filesize itself larger in the process as it makes the tiff a multi-page file with a scaled down version of the raster at each file
+Note: be careful the resampling method is appropriate for the data type:
+
+```$ gdaladdo -r nearest //input/file/location 2 4 8 16 32```
+ 
+Essentially asking for the raster to be resampled at intervals and saving the outputs within the existing file.
+
+#### 2.2: Convert the geotiff to a Cloud Optimised Geotiff with the pyramids intact and internally referenced
+  
+```$ gdal_translate -strict -mo META-TAG=VALUE -a_srs EPSG:4326 -of GTiff -if GTiff //input/file/location //output/file/location -co COMPRESS=LZW -co TILED=YES -co COPY_SRC_OVERVIEWS=YES```
+
+
+### 3. Add your geoTIFF layer
 
 Parameters:
 
@@ -55,8 +77,11 @@ const options = {
   // Optional geoTIFF band to read
   band: 0,
 
-  // Optional geoTIFF image to read
+  // Optional geoTIFF sub-image pyramid to read
   image: 0,
+  
+  //An array of viewport corner coordinates to feed to the raster for use in filtering
+  subset: [],
 
   // Optional clipping polygon, provided as an array of [lat,lon] coordinates.
   // Note that this is the Leaflet [lat,lon] convention, not geoJSON [lon,lat].
@@ -195,23 +220,6 @@ const renderer = L.LeafletGeotiff.vectorArrows(options);
 ## Advanced usage options
 
 1. Custom renderer can be implemented by extending `L.LeafletGeotiffRenderer`.
-
-## Build
-
-```shell
-npm install
-npm run build
-```
-
-## What about the original leaflet-geotiff?
-
-This repo is an attempt to pull together a bunch of community-driven improvements that
-have been made in various forks of `leaflet-geotiff` over the years but have failed to
-make it back into the `leaflet-geotiff` npm package, and to provide a place for active development for new features.
-
-[npm-image]: https://badge.fury.io/js/leaflet-geotiff-2.svg
-[npm-url]: https://www.npmjs.com/package/leaflet-geotiff-2
-[npm-downloads-image]: https://img.shields.io/npm/dt/leaflet-geotiff-2.svg
 
 ## License
 
