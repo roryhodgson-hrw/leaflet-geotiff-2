@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Leaflet GeoTIFF 3 </title>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <div id="controls">
+      <h2>Leaflet GeoTIFF 3 alpha - pyramid and bounds filtering.</h2>
+
+      <form>
+        <p>
+          <label>displayMin:
+            <input type="number" id="displayMin" value="0" />
+          </label><br />
+          <label>displayMax:
+            <input type="number" id="displayMax" value="10" />
+          </label>
+        </p>
+        <p>
+          <label>clampMin:
+            <input type="checkbox" id="clampLow" />
+          </label>
+          <label>clampMax:
+            <input type="checkbox" id="clampHigh" />
+          </label>
+        </p>
+        <p>
+          <label>
+            colorScale:
+            <select id="colorScale">
+              <option>viridis</option>
+              <option>inferno</option>
+              <option>turbo</option>
+              <option>rainbow</option>
+              <option>jet</option>
+              <option>hsv</option>
+              <option>hot</option>
+              <option>cool</option>
+              <option>spring</option>
+              <option>summer</option>
+              <option>winter</option>
+              <option>autumn</option>
+              <option>bone</option>
+              <option>copper</option>
+              <option>greys</option>
+              <option>yignbu</option>
+              <option>greens</option>
+              <option>yiorrd</option>
+              <option>bluered</option>
+              <option>rdbu</option>
+              <option>picnic</option>
+              <option>portland</option>
+              <option>blackbody</option>
+              <option>earth</option>
+              <option>electric</option>
+              <option>magma</option>
+              <option>plasma</option>
+            </select>
+          </label>
+        </p>
+        <p>
+          <button id="getBounds">Zoom to bounds</button>
+          <button id="getColorbarOptions">Log getColorbarOptions</button>
+        </p>
+      </form>
+
+    <p>Data source is a single Cloud Optimed Geotiff (EPSG:4326) file with internal pyramids (resampled lower resolution sub-images).</p>
+    <p>Calling and rendering an appropriate internal pyramid resolution depending on the zoom level AND a viewport defined subset of the raster file.</p>
+    <p>Changing the viewport (zoom/pan) fetches (using http range request) and renders a new viewport filtered raster sub-image at appropriate resolution.</p>
+    <p>Allows for large, high resolution raster coverages to be used as a single 3d/4d filterable datastore (filter raster by resolution, viewport-width, viewport-height and band) filterable datastore to feed leaflet maps. Loading multiple layers offers potential for on-the fly raster calcs to be carried out in the client...</p>
+    <!--leaflet-->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+
+    <!--deps-->
+    <script src="https://unpkg.com/geotiff@1.0.0-beta.7/dist/geotiff.bundle.js"></script>
+    <script src="https://unpkg.com/plotty@0.4.4/dist/plotty.min.js"></script>
+
+    <!--the plugin-->
+    <script src="../dist/leaflet-geotiff.js"></script>
+    <script src="../dist/leaflet-geotiff-plotty.js"></script>
+    <script src="../dist/leaflet-geotiff-vector-arrows.js"></script>
+
+    <!--demo stuff-->
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <link rel="stylesheet" href="demo.css" />
+    <script src="demo.js"></script>
+  </body>
+</html>

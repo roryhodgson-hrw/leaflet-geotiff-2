@@ -1,0 +1,14 @@
+<PAMDataset>
+  <PAMRasterBand band="1">
+    <Metadata>
+      <MDI key="creationTime">1497289465</MDI>
+      <MDI key="creationTimeString">2017-06-12T17:44:25.466257Z</MDI>
+      <MDI key="name">Wind_Mag_SFC</MDI>
+      <MDI key="STATISTICS_MAXIMUM">29.300001144409</MDI>
+      <MDI key="STATISTICS_MEAN">-9043.7510718899</MDI>
+      <MDI key="STATISTICS_MINIMUM">-32767</MDI>
+      <MDI key="STATISTICS_STDDEV">14654.585926459</MDI>
+      <MDI key="STATISTICS_VALID_PERCENT">100</MDI>
+    </Metadata>
+  </PAMRasterBand>
+</PAMDataset>
